@@ -355,10 +355,10 @@ always @(posedge clk) begin
     X <= 0;
   end else if (P == S_MAIN_CALCULATE && counter1 == DELAY1 && sd_valid) begin
     if     (buffer[31:24] == "R" || buffer[31:24] == "r") R <= R+1;
-    else if(buffer[31:24] == "G" || buffer[31:24] == "g") G <= R+1;
-    else if(buffer[31:24] == "B" || buffer[31:24] == "b") B <= R+1;
-    else if(buffer[31:24] == "P" || buffer[31:24] == "p") P <= R+1;
-    else if(buffer[31:24] == "Y" || buffer[31:24] == "y") Y <= R+1;
+    else if(buffer[31:24] == "G" || buffer[31:24] == "g") G <= G+1;
+    else if(buffer[31:24] == "B" || buffer[31:24] == "b") B <= B+1;
+    else if(buffer[31:24] == "P" || buffer[31:24] == "p") P_count <= P_count+1;
+    else if(buffer[31:24] == "Y" || buffer[31:24] == "y") Y <= Y+1;
     else X <= X+1;
   end
 end
@@ -382,7 +382,7 @@ always @(posedge clk) begin
     row_B <= {((R > 9)? "7" : "0") + R,
               ((G > 9)? "7" : "0") + G,
               ((B > 9)? "7" : "0") + B,
-              ((P > 9)? "7" : "0") + P,
+              ((P_count > 9)? "7" : "0") + P_count,
               ((Y > 9)? "7" : "0") + Y,
               ((X-4 > 9)? "7" : "0") + X-4,//"DCL_"END
                "          " };
