@@ -103,7 +103,7 @@ wire [3:0] b_PWM;
 reg [3:0] R;
 reg [3:0] G;
 reg [3:0] B;
-reg [3:0] P;
+reg [3:0] P_count;
 reg [3:0] Y;
 reg [3:0] X;
 
@@ -258,7 +258,7 @@ end
 // FSM ouput logic: Retrieves the content of sram[] for display
 always @(posedge clk) begin
   if (~reset_n) data_byte <= 8'b0;
-  else if (sram_en && (P == S_MAIN_FINDBEGIN || P == S_MAIN_CALCULATE)) data_byte <= data_out;
+  else if (sram_en && (P == S_MAIN_FINDBEGIN || P == S_MAIN_CALCULATE) && sd_valid) data_byte <= data_out;
 end
 // End of the FSM of the SD card reader
 // ------------------------------------------------------------------------
@@ -326,24 +326,18 @@ end
 
 PWM R_PWM(
   .clk(clk),
-  
-.light_in(r_out),
-  
-.light_out(r_PWM)
+  .light_in(r_out),
+  .light_out(r_PWM)
 );
 PWM G_PWM(
   .clk(clk),
-  
-.light_in(g_out),
-  
-.light_out(g_PWM)
+  .light_in(g_out),
+  .light_out(g_PWM)
 );
 PWM B_PWM(
   .clk(clk),
-  
-.light_in(b_out),
-  
-.light_out(b_PWM)
+  .light_in(b_out),
+  .light_out(b_PWM)
 );
 assign rgb_led_r = r_PWM;
 assign rgb_led_g = g_PWM;
