@@ -55,11 +55,12 @@ module lab8(
   output [3:0] rgb_led_b
 );
 
+
 localparam [2:0] S_MAIN_INIT = 3'b000, S_MAIN_IDLE = 3'b001,
                  S_MAIN_WAIT = 3'b010, S_MAIN_FINDBEGIN = 3'b011,
                  S_MAIN_WAIT2 = 3'b100, S_MAIN_CALCULATE = 3'b101,
                  S_MAIN_SHOW = 3'b110;
-localparam DELAY1 = 100_000000; // 1 sec
+localparam DELAY1 = 100_000000;
 // Declare system variables
 wire btn_level, btn_pressed;
 reg  prev_btn_level;
@@ -71,10 +72,9 @@ reg  [31:0] blk_addr;
 
 reg  [127:0] row_A = "SD card cannot  ";
 reg  [127:0] row_B = "be initialized! ";
-reg  done_flag; // Signals the completion of reading one SD sector.
 
 reg [103:0] buffer;
-reg [$clog2(DELAY1):0] counter1;
+reg [$clog2(DELAY1):0] counter;
 
 // Declare SD card interface signals
 wire clk_sel;
@@ -185,8 +185,12 @@ assign sram_addr = sd_counter[8:0]; // Set the driver of the SRAM address signal
 // ------------------------------------------------------------------------
 // FSM of the SD card reader that reads the super block (512 bytes)
 always @(posedge clk) begin
-  if (~reset_n) P <= S_MAIN_INIT;
-  else P <= P_next;
+  if (~reset_n) begin
+    P <= S_MAIN_INIT;
+  end
+  else begin
+    P <= P_next;
+  end
 end
 
 always @(*) begin // FSM next-state logic
@@ -211,6 +215,7 @@ always @(*) begin // FSM next-state logic
       else P_next = S_MAIN_CALCULATE;
     S_MAIN_SHOW:
       if (btn_pressed == 1) P_next = S_MAIN_IDLE;
+      else P_next = S_MAIN_SHOW;    
     default:
       P_next = S_MAIN_IDLE;
   endcase
@@ -224,13 +229,12 @@ end
 
 always @(posedge clk) begin
   if (~reset_n || P == S_MAIN_IDLE) blk_addr <= 32'h2000;
-  else if(P == S_MAIN_WAIT || P == S_MAIN_WAIT2) blk_addr <= blk_addr+1; // In lab 6, change this line to scan all blocks
-
+  else if(P == S_MAIN_WAIT || P == S_MAIN_WAIT2) blk_addr <= blk_addr+1;
+  else blk_addr <= blk_addr; // In lab 6, change this line to scan all blocks
+  
   if (~reset_n || P == S_MAIN_IDLE) buffer <= 104'd0;
   else if((P == S_MAIN_FINDBEGIN || P == S_MAIN_CALCULATE) && sd_valid) 
     buffer <= {buffer[95:0],data_byte};
-
-  
 end
 
 // FSM output logic: controls the 'sd_counter' signal.
@@ -240,17 +244,17 @@ always @(posedge clk) begin
     sd_counter <= 0;
   else if (P == S_MAIN_FINDBEGIN && sd_valid )
     sd_counter <= sd_counter + 1;
-  else if (P == S_MAIN_CALCULATE && counter1 == DELAY1 && sd_valid)
+  else if (P == S_MAIN_CALCULATE /*&& counter == DELAY1 */&& sd_valid)
     sd_counter <= sd_counter + 1;
 end
 
 always @(posedge clk) begin
-  if (P == S_MAIN_CALCULATE && counter1 < DELAY1 && sd_valid) counter1 <= counter1 + 1;
-  else if (P == S_MAIN_CALCULATE && counter1 == DELAY1 && sd_valid) begin
-    counter1 <= 0;
+  if (P == S_MAIN_CALCULATE && counter < DELAY1) counter <= counter + 1;
+  else if (P == S_MAIN_CALCULATE && counter == DELAY1) begin
+    counter <= 0;
   end
   else begin 
-    counter1 <= 0;
+    counter <= 0;
   end
 end
 
@@ -265,9 +269,9 @@ end
 // RGB Display function
 always @(posedge clk) begin
   if (~reset_n || P == S_MAIN_IDLE) begin
-    r_out <= 4'd0;
-    g_out <= 4'd0;
-    b_out <= 4'd0;
+    r_out <= 4'b0000;
+    g_out <= 4'b0000;
+    b_out <= 4'b0000;
   end else if (P == S_MAIN_CALCULATE) begin
     //-----r-------------------------------------------------------------------------------------------------------
     if(buffer[31:24] == "R" || buffer[31:24] == "r" 
@@ -326,25 +330,30 @@ end
 
 PWM R_PWM(
   .clk(clk),
-  .light_in(r_out),
-  .light_out(r_PWM)
+  
+.light_in(r_out),
+  
+.light_out(r_PWM)
 );
 PWM G_PWM(
   .clk(clk),
-  .light_in(g_out),
-  .light_out(g_PWM)
+  
+.light_in(g_out),
+  
+.light_out(g_PWM)
 );
 PWM B_PWM(
   .clk(clk),
-  .light_in(b_out),
-  .light_out(b_PWM)
+  
+.light_in(b_out),
+  
+.light_out(b_PWM)
 );
 assign rgb_led_r = r_PWM;
 assign rgb_led_g = g_PWM;
 assign rgb_led_b = b_PWM;
 // End of the RGB Display function
 // ------------------------------------------------------------------------
-// count the number of color
 always @(posedge clk) begin
   if (~reset_n || P == S_MAIN_IDLE) begin
     R <= 0;
@@ -353,18 +362,16 @@ always @(posedge clk) begin
     P_count <= 0;
     Y <= 0;
     X <= 0;
-  end else if (P == S_MAIN_CALCULATE && counter1 == DELAY1 && sd_valid) begin
-    if     (buffer[31:24] == "R" || buffer[31:24] == "r") R <= R+1;
-    else if(buffer[31:24] == "G" || buffer[31:24] == "g") G <= G+1;
-    else if(buffer[31:24] == "B" || buffer[31:24] == "b") B <= B+1;
-    else if(buffer[31:24] == "P" || buffer[31:24] == "p") P_count <= P_count+1;
-    else if(buffer[31:24] == "Y" || buffer[31:24] == "y") Y <= Y+1;
+  end else if (P == S_MAIN_CALCULATE /*&& counter == DELAY1*/) begin
+    if     (buffer[39:32] == "R" || buffer[39:32] == "r") R <= R+1;
+    else if(buffer[39:32] == "G" || buffer[39:32] == "g") G <= G+1;
+    else if(buffer[39:32] == "B" || buffer[39:32] == "b") B <= B+1;
+    else if(buffer[39:32] == "P" || buffer[39:32] == "p") P_count <= P_count+1;
+    else if(buffer[39:32] == "Y" || buffer[39:32] == "y") Y <= Y+1;
     else X <= X+1;
   end
 end
 
-
-// End of counting
 // ------------------------------------------------------------------------
 // LCD Display function.
 always @(posedge clk) begin
@@ -376,7 +383,7 @@ always @(posedge clk) begin
     row_B <= "title           ";
   end else if (P == S_MAIN_CALCULATE) begin
     row_A <= "calculating...  ";
-    row_B <= "                ";
+    row_B <= buffer[103:32];
   end else if (P == S_MAIN_SHOW) begin
     row_A <= "RGBPYX          ";
     row_B[127:120] <= ((R > 9)? "7" : "0") + R;
@@ -384,7 +391,7 @@ always @(posedge clk) begin
     row_B[111:104] <= ((B > 9)? "7" : "0") + B;
     row_B[103:96] <= ((P_count > 9)? "7" : "0") + P_count;
     row_B[95:88] <= ((Y > 9)? "7" : "0") + Y;
-    row_B[87:80] <= ((X-4 > 9)? "7" : "0") + X-4;
+    row_B[87:80] <= ((X-3 > 9)? "7" : "0") + X-3;
     row_B[79:0] <= "          ";
   end else if (P == S_MAIN_IDLE) begin
     row_A <= "Hit BTN2 to read";
