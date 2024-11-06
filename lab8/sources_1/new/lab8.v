@@ -350,7 +350,7 @@ always @(posedge clk) begin
     R <= 0;
     G <= 0;
     B <= 0;
-    P <= 0;
+    P_count <= 0;
     Y <= 0;
     X <= 0;
   end else if (P == S_MAIN_CALCULATE && counter1 == DELAY1 && sd_valid) begin
@@ -379,13 +379,13 @@ always @(posedge clk) begin
     row_B <= "                ";
   end else if (P == S_MAIN_SHOW) begin
     row_A <= "RGBPYX          ";
-    row_B <= {((R > 9)? "7" : "0") + R,
-              ((G > 9)? "7" : "0") + G,
-              ((B > 9)? "7" : "0") + B,
-              ((P_count > 9)? "7" : "0") + P_count,
-              ((Y > 9)? "7" : "0") + Y,
-              ((X-4 > 9)? "7" : "0") + X-4,//"DCL_"END
-               "          " };
+    row_B[127:120] <= ((R > 9)? "7" : "0") + R;
+    row_B[119:112] <= ((G > 9)? "7" : "0") + G;
+    row_B[111:104] <= ((B > 9)? "7" : "0") + B;
+    row_B[103:96] <= ((P_count > 9)? "7" : "0") + P_count;
+    row_B[95:88] <= ((Y > 9)? "7" : "0") + Y;
+    row_B[87:80] <= ((X-4 > 9)? "7" : "0") + X-4;
+    row_B[79:0] <= "          ";
   end else if (P == S_MAIN_IDLE) begin
     row_A <= "Hit BTN2 to read";
     row_B <= "the SD card ... ";
