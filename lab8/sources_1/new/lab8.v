@@ -29,7 +29,6 @@
 // Additional Comments:
 // 
 //////////////////////////////////////////////////////////////////////////////////
-
 module lab8(
   // General system I/O ports
   input  clk,
@@ -57,9 +56,9 @@ module lab8(
 
 
 localparam [2:0] S_MAIN_INIT = 3'b000, S_MAIN_IDLE = 3'b001,
-                 S_MAIN_WAIT = 3'b010, S_MAIN_FINDBEGIN = 3'b011,
-                 S_MAIN_WAIT2 = 3'b100, S_MAIN_CALCULATE = 3'b101,
-                 S_MAIN_SHOW = 3'b110;
+                 S_MAIN_WAIT = 3'b010, S_MAIN_FINDBEGIN = 3'b011,S_MAIN_READ = 3'b100,
+                 S_MAIN_WAIT2 = 3'b101, S_MAIN_CALCULATE = 3'b110,
+                 S_MAIN_SHOW = 3'b111;
 localparam DELAY1 = 100_000000;
 // Declare system variables
 wire btn_level, btn_pressed;
@@ -73,8 +72,10 @@ reg  [31:0] blk_addr;
 reg  [127:0] row_A = "SD card cannot  ";
 reg  [127:0] row_B = "be initialized! ";
 
-reg [103:0] buffer;
-reg [$clog2(DELAY1):0] counter;
+reg [103:0] buffer; //找begin end
+reg [55:0] sector; //答案區間
+reg [$clog2(DELAY1):0] counter; //delay 1s
+reg [2:0] cnt; //數4次
 
 // Declare SD card interface signals
 wire clk_sel;
@@ -100,12 +101,12 @@ wire [3:0] g_PWM;
 wire [3:0] b_PWM;
 
 // Declare count
-reg [3:0] R;
-reg [3:0] G;
-reg [3:0] B;
+reg [3:0] R_count;
+reg [3:0] G_count;
+reg [3:0] B_count;
 reg [3:0] P_count;
-reg [3:0] Y;
-reg [3:0] X;
+reg [3:0] Y_count;
+reg [3:0] X_count;
 
 assign clk_sel = (init_finished)? clk : clk_500k; // clock for the SD controller
 assign usr_led = 4'h00;
@@ -175,7 +176,8 @@ assign btn_pressed = (btn_level == 1 && prev_btn_level == 0)? 1 : 0;
 // Once the read request is made to the SD controller, 512 bytes of data
 // will be sequentially read into the SRAM memory block, one byte per
 // clock cycle (as long as the sd_valid signal is high).
-assign sram_we = sd_valid;          // Write data into SRAM when sd_valid is high.
+//只有P == read的時候才改sram
+assign sram_we = (P == S_MAIN_READ)? sd_valid : 0;          // Write data into SRAM when sd_valid is high.
 assign sram_en = 1;                 // Always enable the SRAM block.
 assign data_in = sd_dout;           // Input data always comes from the SD controller.
 assign sram_addr = sd_counter[8:0]; // Set the driver of the SRAM address signal.
@@ -203,17 +205,21 @@ always @(*) begin // FSM next-state logic
       else P_next = S_MAIN_IDLE;
     S_MAIN_WAIT: // issue a rd_req to the SD controller until it's ready
       P_next = S_MAIN_FINDBEGIN;
-    S_MAIN_FINDBEGIN: // wait for the input data to enter the SRAM buffer
-      if (buffer[103:32] == "DCL_START") P_next = S_MAIN_CALCULATE;
+    S_MAIN_FINDBEGIN: //find begin
+      if (buffer[71:0] == "DCL_START") P_next = S_MAIN_READ;
       else if (sd_counter == 512) P_next = S_MAIN_WAIT;
       else P_next = S_MAIN_FINDBEGIN;
-    S_MAIN_WAIT2:
-      P_next = S_MAIN_CALCULATE;
-    S_MAIN_CALCULATE: 
-      if (buffer[55:0] == "DCL_END") P_next = S_MAIN_SHOW;
+    S_MAIN_READ:      //find end & write sram
+      if(buffer[55:0] == "DCL_END") P_next = S_MAIN_CALCULATE;
+      else if (sd_counter == 512) P_next = S_MAIN_WAIT2;
+      else P_next = S_MAIN_READ;
+    S_MAIN_WAIT2: // issue a rd_req to the SD controller until it's ready
+      P_next = S_MAIN_READ;
+    S_MAIN_CALCULATE: //answer
+      if (sector[55:0] == "DCL_END") P_next = S_MAIN_SHOW;
       else if (sd_counter == 512) P_next = S_MAIN_WAIT2;
       else P_next = S_MAIN_CALCULATE;
-    S_MAIN_SHOW:
+    S_MAIN_SHOW: //show the number of color
       if (btn_pressed == 1) P_next = S_MAIN_IDLE;
       else P_next = S_MAIN_SHOW;    
     default:
@@ -232,19 +238,27 @@ always @(posedge clk) begin
   else if(P == S_MAIN_WAIT || P == S_MAIN_WAIT2) blk_addr <= blk_addr+1;
   else blk_addr <= blk_addr; // In lab 6, change this line to scan all blocks
   
-  if (~reset_n || P == S_MAIN_IDLE) buffer <= 104'd0;
-  else if((P == S_MAIN_FINDBEGIN || P == S_MAIN_CALCULATE) && sd_valid) 
-    buffer <= {buffer[95:0],data_byte};
+  if (~reset_n || P == S_MAIN_IDLE) begin
+    buffer <= 104'd0;
+    sector <= 56'd0;
+  end else if(P == S_MAIN_FINDBEGIN && sd_valid)
+    buffer <= {buffer[95:0],sd_dout};
+  else if(P == S_MAIN_READ && sd_valid) 
+    buffer <= {buffer[95:0],sd_dout};
+  else if(P == S_MAIN_CALCULATE && counter == 0)
+    sector <= {sector[47:0],data_byte};
 end
 
 // FSM output logic: controls the 'sd_counter' signal.
 // SD card read address incrementer
 always @(posedge clk) begin
-  if (~reset_n || P == S_MAIN_WAIT || P == S_MAIN_WAIT2)
+  if (~reset_n || P == S_MAIN_WAIT || P == S_MAIN_WAIT2 
+  || (P == S_MAIN_FINDBEGIN && P_next == S_MAIN_READ) //found begin
+  || (P==S_MAIN_READ && P_next == S_MAIN_CALCULATE))  //found end
     sd_counter <= 0;
-  else if (P == S_MAIN_FINDBEGIN && sd_valid )
+  else if ((P == S_MAIN_FINDBEGIN || P == S_MAIN_READ) && sd_valid )//sd_counter
     sd_counter <= sd_counter + 1;
-  else if (P == S_MAIN_CALCULATE /*&& counter == DELAY1 */&& sd_valid)
+  else if (P == S_MAIN_CALCULATE && counter == DELAY1 )//sram address
     sd_counter <= sd_counter + 1;
 end
 
@@ -252,9 +266,11 @@ always @(posedge clk) begin
   if (P == S_MAIN_CALCULATE && counter < DELAY1) counter <= counter + 1;
   else if (P == S_MAIN_CALCULATE && counter == DELAY1) begin
     counter <= 0;
+    cnt <= cnt + (cnt < 4);//先讀四次才開始亮燈
   end
   else begin 
     counter <= 0;
+    cnt <= 0;
   end
 end
 
@@ -262,7 +278,7 @@ end
 // FSM ouput logic: Retrieves the content of sram[] for display
 always @(posedge clk) begin
   if (~reset_n) data_byte <= 8'b0;
-  else if (sram_en && (P == S_MAIN_FINDBEGIN || P == S_MAIN_CALCULATE) && sd_valid) data_byte <= data_out;
+  else if (sram_en && P == S_MAIN_CALCULATE) data_byte <= data_out;
 end
 // End of the FSM of the SD card reader
 // ------------------------------------------------------------------------
@@ -272,62 +288,64 @@ always @(posedge clk) begin
     r_out <= 4'b0000;
     g_out <= 4'b0000;
     b_out <= 4'b0000;
-  end else if (P == S_MAIN_CALCULATE) begin
-    //-----r-------------------------------------------------------------------------------------------------------
-    if(buffer[31:24] == "R" || buffer[31:24] == "r" 
-    || buffer[31:24] == "P" || buffer[31:24] == "p" 
-    || buffer[31:24] == "Y" || buffer[31:24] == "y") r_out[3] <= 1;
+  end else if (P == S_MAIN_CALCULATE && cnt == 4) begin
+    //Red-------------------------------------------------------------------------------------------------------
+    if(sector[31:24] == "R" || sector[31:24] == "r" 
+    || sector[31:24] == "P" || sector[31:24] == "p" 
+    || sector[31:24] == "Y" || sector[31:24] == "y") r_out[3] <= 1;
     else r_out[3] <= 0;
     
-    if(buffer[23:16] == "R" || buffer[23:16] == "r" 
-    || buffer[23:16] == "P" || buffer[23:16] == "p" 
-    || buffer[23:16] == "Y" || buffer[23:16] == "y") r_out[2] <= 1;
+    if(sector[23:16] == "R" || sector[23:16] == "r" 
+    || sector[23:16] == "P" || sector[23:16] == "p" 
+    || sector[23:16] == "Y" || sector[23:16] == "y") r_out[2] <= 1;
     else r_out[2] <= 0;
     
-    if(buffer[15: 8] == "R" || buffer[15: 8] == "r" 
-    || buffer[15: 8] == "P" || buffer[15: 8] == "p" 
-    || buffer[15: 8] == "Y" || buffer[15: 8] == "y") r_out[1] <= 1;
+    if(sector[15: 8] == "R" || sector[15: 8] == "r" 
+    || sector[15: 8] == "P" || sector[15: 8] == "p" 
+    || sector[15: 8] == "Y" || sector[15: 8] == "y") r_out[1] <= 1;
     else r_out[1] <= 0;
     
-    if(buffer[ 7: 0] == "R" || buffer[ 7: 0] == "r" 
-    || buffer[ 7: 0] == "P" || buffer[ 7: 0] == "p" 
-    || buffer[ 7: 0] == "Y" || buffer[ 7: 0] == "y") r_out[0] <= 1;
+    if(sector[ 7: 0] == "R" || sector[ 7: 0] == "r" 
+    || sector[ 7: 0] == "P" || sector[ 7: 0] == "p" 
+    || sector[ 7: 0] == "Y" || sector[ 7: 0] == "y") r_out[0] <= 1;
     else r_out[0] <= 0;
-    //-----g-------------------------------------------------------------------------------------------------------
-    if(buffer[31:24] == "G" || buffer[31:24] == "g" 
-    || buffer[31:24] == "Y" || buffer[31:24] == "y") g_out[3] <= 1;
+    
+    //Green-------------------------------------------------------------------------------------------------------
+    if(sector[31:24] == "G" || sector[31:24] == "g" 
+    || sector[31:24] == "Y" || sector[31:24] == "y") g_out[3] <= 1;
     else g_out[3] <= 0;
     
-    if(buffer[23:16] == "G" || buffer[23:16] == "g" 
-    || buffer[23:16] == "Y" || buffer[23:16] == "y") g_out[2] <= 1;
+    if(sector[23:16] == "G" || sector[23:16] == "g" 
+    || sector[23:16] == "Y" || sector[23:16] == "y") g_out[2] <= 1;
     else g_out[2] <= 0;
     
-    if(buffer[15: 8] == "G" || buffer[15: 8] == "g" 
-    || buffer[15: 8] == "Y" || buffer[15: 8] == "y") g_out[1] <= 1;
+    if(sector[15: 8] == "G" || sector[15: 8] == "g" 
+    || sector[15: 8] == "Y" || sector[15: 8] == "y") g_out[1] <= 1;
     else g_out[1] <= 0;
     
-    if(buffer[ 7: 0] == "G" || buffer[ 7: 0] == "g" 
-    || buffer[ 7: 0] == "Y" || buffer[ 7: 0] == "y") g_out[0] <= 1;
+    if(sector[ 7: 0] == "G" || sector[ 7: 0] == "g" 
+    || sector[ 7: 0] == "Y" || sector[ 7: 0] == "y") g_out[0] <= 1;
     else g_out[0] <= 0;
-    //-----b-------------------------------------------------------------------------------------------------------
-    if(buffer[31:24] == "B" || buffer[31:24] == "b" 
-    || buffer[31:24] == "P" || buffer[31:24] == "p") b_out[3] <= 1;
+    
+    //Blue-------------------------------------------------------------------------------------------------------
+    if(sector[31:24] == "B" || sector[31:24] == "b" 
+    || sector[31:24] == "P" || sector[31:24] == "p") b_out[3] <= 1;
     else b_out[3] <= 0;
     
-    if(buffer[23:16] == "B" || buffer[23:16] == "b" 
-    || buffer[23:16] == "P" || buffer[23:16] == "p") b_out[2] <= 1;
+    if(sector[23:16] == "B" || sector[23:16] == "b" 
+    || sector[23:16] == "P" || sector[23:16] == "p") b_out[2] <= 1;
     else b_out[2] <= 0;
     
-    if(buffer[15: 8] == "B" || buffer[15: 8] == "b" 
-    || buffer[15: 8] == "P" || buffer[15: 8] == "p") b_out[1] <= 1;
+    if(sector[15: 8] == "B" || sector[15: 8] == "b" 
+    || sector[15: 8] == "P" || sector[15: 8] == "p") b_out[1] <= 1;
     else b_out[1] <= 0;
     
-    if(buffer[ 7: 0] == "B" || buffer[ 7: 0] == "b" 
-    || buffer[ 7: 0] == "P" || buffer[ 7: 0] == "p") b_out[0] <= 1;
+    if(sector[ 7: 0] == "B" || sector[ 7: 0] == "b" 
+    || sector[ 7: 0] == "P" || sector[ 7: 0] == "p") b_out[0] <= 1;
     else b_out[0] <= 0;
   end
 end
-
+//PWM
 PWM R_PWM(
   .clk(clk),
   
@@ -354,24 +372,25 @@ assign rgb_led_g = g_PWM;
 assign rgb_led_b = b_PWM;
 // End of the RGB Display function
 // ------------------------------------------------------------------------
+// Count color
 always @(posedge clk) begin
   if (~reset_n || P == S_MAIN_IDLE) begin
-    R <= 0;
-    G <= 0;
-    B <= 0;
+    R_count <= 0;
+    G_count <= 0;
+    B_count <= 0;
     P_count <= 0;
-    Y <= 0;
-    X <= 0;
-  end else if (P == S_MAIN_CALCULATE /*&& counter == DELAY1*/) begin
-    if     (buffer[39:32] == "R" || buffer[39:32] == "r") R <= R+1;
-    else if(buffer[39:32] == "G" || buffer[39:32] == "g") G <= G+1;
-    else if(buffer[39:32] == "B" || buffer[39:32] == "b") B <= B+1;
-    else if(buffer[39:32] == "P" || buffer[39:32] == "p") P_count <= P_count+1;
-    else if(buffer[39:32] == "Y" || buffer[39:32] == "y") Y <= Y+1;
-    else X <= X+1;
+    Y_count <= 0;
+    X_count <= 0;
+  end else if (P == S_MAIN_CALCULATE && counter == DELAY1) begin
+    if     (sector[7:0] == "R" || sector[7:0] == "r") R_count <= R_count+1;
+    else if(sector[7:0] == "G" || sector[7:0] == "g") G_count <= G_count+1;
+    else if(sector[7:0] == "B" || sector[7:0] == "b") B_count <= B_count+1;
+    else if(sector[7:0] == "P" || sector[7:0] == "p") P_count <= P_count+1;
+    else if(sector[7:0] == "Y" || sector[7:0] == "y") Y_count <= Y_count+1;
+    else X_count <= X_count+1;
   end
 end
-
+// End of Count color
 // ------------------------------------------------------------------------
 // LCD Display function.
 always @(posedge clk) begin
@@ -381,17 +400,18 @@ always @(posedge clk) begin
   end else if (P == S_MAIN_FINDBEGIN) begin
     row_A <= "searching for   ";
     row_B <= "title           ";
-  end else if (P == S_MAIN_CALCULATE) begin
+  end else if (P == S_MAIN_CALCULATE && cnt == 4) begin
     row_A <= "calculating...  ";
-    row_B <= buffer[103:32];
+    row_B <= "                ";
+//    row_B <= {"         ",sector[55:0]};//show sector
   end else if (P == S_MAIN_SHOW) begin
     row_A <= "RGBPYX          ";
-    row_B[127:120] <= ((R > 9)? "7" : "0") + R;
-    row_B[119:112] <= ((G > 9)? "7" : "0") + G;
-    row_B[111:104] <= ((B > 9)? "7" : "0") + B;
-    row_B[103:96] <= ((P_count > 9)? "7" : "0") + P_count;
-    row_B[95:88] <= ((Y > 9)? "7" : "0") + Y;
-    row_B[87:80] <= ((X-3 > 9)? "7" : "0") + X-3;
+    row_B[127:120] <= ((R_count > 9)? "7" : "0") + R_count;
+    row_B[119:112] <= ((G_count > 9)? "7" : "0") + G_count;
+    row_B[111:104] <= ((B_count > 9)? "7" : "0") + B_count;
+    row_B[103: 96] <= ((P_count > 9)? "7" : "0") + P_count;
+    row_B[ 95: 88] <= ((Y_count > 9)? "7" : "0") + Y_count;
+    row_B[ 87: 80] <= ((X_count-7 > 9)? "7" : "0") + X_count-7;
     row_B[79:0] <= "          ";
   end else if (P == S_MAIN_IDLE) begin
     row_A <= "Hit BTN2 to read";
@@ -400,5 +420,4 @@ always @(posedge clk) begin
 end
 // End of the LCD display function
 // ------------------------------------------------------------------------
-
 endmodule
