@@ -23,10 +23,10 @@
 module SHA256(
   input clk,
   input [2:0] P,
-  input [255:0] passwd_hash,
-  input [71:0] start,
+  input [255:0] passwd_hash, //要求的password_hash
+  input [71:0] start, //起始數字
   output [71:0] hash,
-  output done
+  output done //find password
     );
 localparam [2:0] S_MAIN_INIT = 0, S_MAIN_BTN = 1, S_MAIN_CALCULATE = 2,
                  S_MAIN_SHOW = 3;
@@ -148,19 +148,19 @@ always @(posedge clk) begin
     i <= 16;
   end else if(P == S_MAIN_CALCULATE && i<64) begin // 填充計算
     W[i] <= W[i-16] + 
-            ({W[i-15][ 6:0], W[i-15][31: 7]} ^ {W[i-15][17:0], W[i-15][31:18]} ^ ((W[i-15] >>  3))) +
+            ({W[i-15][ 6:0], W[i-15][31: 7]} ^ {W[i-15][17:0], W[i-15][31:18]} ^ ((W[i-15] >>  3))) + //sigma0(rotate7,18,shift3)
             W[i- 7] +
-            ({W[i- 2][16:0], W[i- 2][31:17]} ^ {W[i- 2][18:0], W[i- 2][31:19]} ^ ((W[i- 2] >> 10))); 
+            ({W[i- 2][16:0], W[i- 2][31:17]} ^ {W[i- 2][18:0], W[i- 2][31:19]} ^ ((W[i- 2] >> 10)));  //sigma1(rotate17,19,shift10)
     i <= i+1;
   end else if(P == S_MAIN_CALCULATE && i<128) begin
     case(cnt)
     0:begin
       temp1 = h + 
-              ({e[5:0], e[31:6]} ^ {e[10:0], e[31:11]} ^ {e[24:0], e[31:25]}) +
-              ((e & f) ^ (~e & g)) +
+              ({e[5:0], e[31:6]} ^ {e[10:0], e[31:11]} ^ {e[24:0], e[31:25]}) + //Sigma1(rotate6,11,25)
+              ((e & f) ^ (~e & g)) + //choice
               W[i-64] + K[i-64];
-      temp2 = ({a[1:0], a[31:2]} ^ {a[12:0], a[31:13]} ^ {a[21:0], a[31:22]}) +
-              ((a & b) ^ (a & c) ^ (b & c));
+      temp2 = ({a[1:0], a[31:2]} ^ {a[12:0], a[31:13]} ^ {a[21:0], a[31:22]}) + //Sigma0(rotate2,13,22)
+              ((a & b) ^ (a & c) ^ (b & c)); //Majority
       cnt <= 1;
     end
     1:begin
@@ -210,7 +210,7 @@ always @(posedge clk) begin
       g <= 32'h1f83d9ab;
       h <= 32'h5be0cd19;
       cnt <= 0;
-      if(curnum[7:0] == "9") begin
+      if(curnum[7:0] == "9") begin //只計算數字密碼
         curnum[7:0] <= "0";
         if(curnum[15:8] == "9") begin
           curnum[15:8] <= "0";

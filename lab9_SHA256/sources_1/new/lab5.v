@@ -76,7 +76,7 @@ always @(*) begin // FSM next-state logic
       if(btn_pressed) P_next = S_MAIN_CALCULATE;
       else P_next = S_MAIN_BTN;
     S_MAIN_CALCULATE:
-      if(|done) P_next = S_MAIN_SHOW;
+      if(|done) P_next = S_MAIN_SHOW; //其中一個找到
       else P_next = S_MAIN_CALCULATE;
     S_MAIN_SHOW:
       P_next = S_MAIN_SHOW;
