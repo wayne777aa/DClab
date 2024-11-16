@@ -24,7 +24,7 @@ localparam DELAY1 = 100_000000;
 reg [$clog2(DELAY1):0] counter;
 reg [$clog2(DELAY1):0] init_counter;
 reg [55:0] timer;
-reg [255:0] passwd_hash = 256'h5f140cdd68d02a020af21299eb57850c55b7ef294e97c18e217c4e911961b785;
+reg [255:0] passwd_hash = 256'h185ce8fc660c5607c09afb444d81f918300a1fc7737d780e4a6c0ed5871c6dd6;
 reg [71:0] finalnum;
 wire [71:0] hash [5:0];
 wire [5:0] done;
@@ -171,7 +171,8 @@ always @(posedge clk) begin
   if (P == S_MAIN_INIT) init_counter <= init_counter + (init_counter < DELAY1);
   else init_counter <= 0;
 end
-//counter
+//every second counter
+/*
 always @(posedge clk) begin
   if (~reset_n || P == S_MAIN_INIT) begin
     timer <= 0;
@@ -184,6 +185,15 @@ always @(posedge clk) begin
     end else
       counter <= counter +1;
   end
+end
+*/
+//every clock counter
+always @(posedge clk) begin
+  if (~reset_n || P == S_MAIN_INIT) begin
+    timer <= 0;
+  end
+  else if (P == S_MAIN_CALCULATE)
+      timer <= timer+(timer<56'hFFFFFFFFFFFFFF);
 end
 //end of counter
 //----------------------------
